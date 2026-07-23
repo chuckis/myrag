@@ -62,4 +62,9 @@ def main(page: ft.Page):
     add_view.refresh_status()
 
 
-ft.app(target=main)
+import os
+
+if os.environ.get("MYRAG_WEB"):
+    ft.app(target=main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0", port=8080)
+else:
+    ft.app(target=main)
