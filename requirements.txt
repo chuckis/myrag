@@ -1,0 +1,9 @@
+llama-index
+chromadb
+python-docx
+llama-index-vector-stores-chroma
+llama-index-llms-llama-cpp
+llama-index-embeddings-huggingface
+llama-index-embeddings-fastembed
+llama-cpp-python
+flet
