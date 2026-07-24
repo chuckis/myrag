@@ -1,3 +1,4 @@
+import threading
 from typing import Generator, Sequence
 
 import chromadb
@@ -72,7 +73,7 @@ def ask_rag(query: str) -> str:
     return str(response).strip()
 
 
-def ask_rag_stream(query: str, chat_context: str = "") -> Generator[str, None, None]:
+def ask_rag_stream(query: str, chat_context: str = "", stop_event: threading.Event | None = None) -> Generator[str, None, None]:
     chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
     collection = chroma_client.get_or_create_collection("myrag")
     vector_store = ChromaVectorStore(chroma_collection=collection)
@@ -96,6 +97,11 @@ def ask_rag_stream(query: str, chat_context: str = "") -> Generator[str, None, N
     prompt = QA_PROMPT.format(context_str=context, query_str=query_str)
     full_prompt = completion_to_prompt(prompt)
 
+    if stop_event and stop_event.is_set():
+        return
+
+    import queue
+
     from llama_cpp import Llama
 
     llm = Llama(
@@ -105,14 +111,38 @@ def ask_rag_stream(query: str, chat_context: str = "") -> Generator[str, None, N
         verbose=False,
     )
 
-    stream = llm.create_completion(
-        full_prompt,
-        max_tokens=512,
-        temperature=0.1,
-        stream=True,
-    )
+    token_queue: queue.Queue[str | Exception | None] = queue.Queue(maxsize=4)
 
-    for output in stream:
-        token = output["choices"][0]["text"]
-        if token:
-            yield token
+    def _produce():
+        try:
+            stream = llm.create_completion(
+                full_prompt,
+                max_tokens=512,
+                temperature=0.1,
+                stream=True,
+            )
+            for output in stream:
+                if stop_event and stop_event.is_set():
+                    break
+                token = output["choices"][0]["text"]
+                if token:
+                    token_queue.put(token)
+        except Exception as e:
+            token_queue.put(e)
+        finally:
+            token_queue.put(None)
+
+    threading.Thread(target=_produce, daemon=True).start()
+
+    while True:
+        try:
+            item = token_queue.get(timeout=0.2)
+        except queue.Empty:
+            if stop_event and stop_event.is_set():
+                break
+            continue
+        if item is None:
+            break
+        if isinstance(item, Exception):
+            raise item
+        yield item

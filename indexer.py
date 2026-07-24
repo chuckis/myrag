@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import time
 
 import chromadb
 from llama_index.core import Document, VectorStoreIndex, StorageContext
@@ -10,7 +11,7 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 
 from config import CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE
 from embeddings import LlamaCPPEmbedding
-from storage import get_unprocessed, mark_processed, parse_docx
+from storage import get_unprocessed, mark_processed, parse_docx, save_indexing_run
 
 
 def _load_known_hashes() -> set[str]:
@@ -110,6 +111,8 @@ def run_indexer():
         chunk_overlap=CHUNK_OVERLAP,
     )
 
+    t0 = time.time()
+
     VectorStoreIndex.from_documents(
         new_docs,
         storage_context=storage_context,
@@ -120,8 +123,14 @@ def run_indexer():
 
     storage_context.docstore.persist(docstore_path)
 
+    t1 = time.time()
+
     known_hashes.update(d.metadata["content_hash"] for d in new_docs)
     _save_known_hashes(known_hashes)
 
     mark_processed(processed_ids)
     print(f"Done. Indexed {len(new_docs)} documents.")
+
+    duration = t1 - t0
+    save_indexing_run(len(new_docs), duration)
+    print(f"Indexing took {duration:.1f}s ({duration/60:.1f}min).")

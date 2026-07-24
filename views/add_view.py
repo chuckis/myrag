@@ -4,7 +4,7 @@ import threading
 
 import flet as ft
 
-from storage import add_to_buffer, get_stats
+from storage import add_to_buffer, get_stats, get_indexing_estimate
 from indexer import run_indexer
 from logseq_importer import import_logseq
 from tg_importer import import_telegram
@@ -179,9 +179,21 @@ class AddView:
         threading.Thread(target=task, daemon=True).start()
 
     def on_index(self, _):
+        stats = get_stats()
+        pending = stats["pending"]
+        if pending == 0:
+            self.log_text.value = "Nothing to index."
+            self.page.update()
+            return
+
+        estimate = get_indexing_estimate(pending)
+        msg = f"Indexing {pending} pending record{'s' if pending != 1 else ''}..."
+        if estimate:
+            msg += f"\nEstimated time: {estimate}"
+        self.log_text.value = msg
+
         self.index_button.disabled = True
         self.index_progress.visible = True
-        self.log_text.value = ""
         self.page.update()
 
         def task():

@@ -45,6 +45,16 @@ def _get_conn() -> sqlite3.Connection:
             )
             """
         )
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS indexing_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_count INTEGER NOT NULL,
+                duration_seconds REAL NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
         _migrate()
         _conn.commit()
     return _conn
@@ -217,6 +227,28 @@ def load_recent_chat_context(chat_id: int, n: int = 5) -> str:
         parts.append(f"User: {r['query']}")
         parts.append(f"Assistant: {r['answer']}")
     return "\n".join(parts)
+
+
+def save_indexing_run(doc_count: int, duration: float):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO indexing_stats (doc_count, duration_seconds) VALUES (?, ?)",
+        (doc_count, duration),
+    )
+    conn.commit()
+
+
+def get_indexing_estimate(pending_count: int) -> str | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT SUM(doc_count), SUM(duration_seconds), COUNT(*) FROM indexing_stats"
+    ).fetchone()
+    if not row or row[2] == 0 or row[0] is None or row[0] == 0:
+        return None
+    total_docs, total_secs, runs = row
+    avg_secs_per_doc = total_secs / total_docs
+    est_secs = avg_secs_per_doc * pending_count
+    return f"~{est_secs:.0f}s ({runs} previous run{'s' if runs != 1 else ''})"
 
 
 def parse_docx(filepath: str) -> str:

@@ -15,6 +15,7 @@ class ChatView:
         self.current_chat_id: int | None = None
         self.current_messages: list[tuple[str, str]] = []
         self.streaming = False
+        self._stop_event: threading.Event | None = None
         self._mobile = False
 
         self.page.on_resize = self._on_resize
@@ -39,9 +40,10 @@ class ChatView:
         )
         self.ask_button = ft.ElevatedButton("❓ Ask", on_click=self.on_ask)
         self.ask_progress = ft.ProgressRing(width=16, height=16, visible=False)
+        self.cancel_button = ft.ElevatedButton("Stop", on_click=self.on_stop, visible=False)
 
         self.input_row = ft.Row(
-            [self.query_field, self.ask_button, self.ask_progress],
+            [self.query_field, self.ask_button, self.ask_progress, self.cancel_button],
             spacing=10,
         )
 
@@ -171,8 +173,8 @@ class ChatView:
         return ft.Container(
             ft.Column(
                 [
-                    ft.Text(f"Q: {query}", weight=ft.FontWeight.BOLD),
-                    ft.Text(f"A: {answer}"),
+                    ft.Text(f"Q: {query}", weight=ft.FontWeight.BOLD, selectable=True),
+                    ft.Text(f"A: {answer}", selectable=True),
                 ]
             ),
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
@@ -306,14 +308,20 @@ class ChatView:
 
         self.page.show_dialog(dlg)
 
+    def on_stop(self, _):
+        if self._stop_event:
+            self._stop_event.set()
+
     def on_ask(self, _):
         query = self.query_field.value
         if not query or self.streaming:
             return
 
         self.streaming = True
-        self.ask_button.disabled = True
+        self._stop_event = threading.Event()
+        self.ask_button.visible = False
         self.ask_progress.visible = True
+        self.cancel_button.visible = True
         self.query_field.value = ""
 
         if not self.current_messages:
@@ -326,8 +334,8 @@ class ChatView:
         answer_bubble = ft.Container(
             ft.Column(
                 [
-                    ft.Text(f"Q: {query}", weight=ft.FontWeight.BOLD),
-                    ft.Text("A: ", italic=True),
+                    ft.Text(f"Q: {query}", weight=ft.FontWeight.BOLD, selectable=True),
+                    ft.Text("A: ", italic=True, selectable=True),
                 ]
             ),
             bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
@@ -348,7 +356,7 @@ class ChatView:
         def stream_task():
             nonlocal full_answer
             try:
-                for token in ask_rag_stream(query, chat_context=chat_context):
+                for token in ask_rag_stream(query, chat_context=chat_context, stop_event=self._stop_event):
                     full_answer += token
                     answer_text.value = f"A: {full_answer}"
                     self.page.update()
@@ -356,11 +364,16 @@ class ChatView:
                 answer_text.value = f"A: Error: {e}"
                 self.page.update()
 
-            save_chat(query, full_answer, self.current_chat_id)
-            self.current_messages.append((query, full_answer))
+            cancelled = self._stop_event and self._stop_event.is_set()
+            if full_answer and not cancelled:
+                save_chat(query, full_answer, self.current_chat_id)
+                self.current_messages.append((query, full_answer))
+
             self.streaming = False
-            self.ask_button.disabled = False
+            self._stop_event = None
+            self.ask_button.visible = True
             self.ask_progress.visible = False
+            self.cancel_button.visible = False
             self.page.update()
 
         threading.Thread(target=stream_task, daemon=True).start()
