@@ -8,8 +8,6 @@ from views.chat_view import ChatView
 def main(page: ft.Page):
     page.title = "MyRag"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.scroll = ft.ScrollMode.AUTO
-
     init_db()
 
     add_view = AddView(page)
@@ -43,6 +41,7 @@ def main(page: ft.Page):
 
     tabs = ft.Tabs(
         selected_index=0,
+        expand=True,
         animation_duration=300,
         on_change=lambda e: chat_view.load_chat_list() if int(e.data) == 1 else None,
         length=2,
