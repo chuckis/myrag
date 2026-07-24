@@ -59,13 +59,22 @@ class AddView:
                 ft.ResponsiveRow(
                     [
                         ft.Container(
-                            self.file_path_field, col={"xs": 12, "sm": 8, "md": 9},
+                            self.file_path_field, col={"xs": 12, "sm": 7, "md": 7},
                         ),
                         ft.Container(
-                            ft.ElevatedButton(
-                                "➕ Add File", on_click=self.on_add_file,
+                            ft.Row(
+                                [
+                                    ft.ElevatedButton(
+                                        "📁 Browse",
+                                        on_click=self.on_browse,
+                                    ),
+                                    ft.ElevatedButton(
+                                        "➕ Add File", on_click=self.on_add_file,
+                                    ),
+                                ],
+                                spacing=5,
                             ),
-                            col={"xs": 12, "sm": 4, "md": 3},
+                            col={"xs": 12, "sm": 5, "md": 5},
                         ),
                     ],
                     spacing=10,
@@ -112,6 +121,16 @@ class AddView:
             scroll=ft.ScrollMode.AUTO,
             expand=True,
         )
+
+    async def on_browse(self, _):
+        files = await ft.FilePicker().pick_files(
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["docx", "pdf", "json"],
+            allow_multiple=False,
+        )
+        if files:
+            self.file_path_field.value = files[0].path
+            self.page.update()
 
     def on_add(self, _):
         content = self.content_field.value
