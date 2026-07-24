@@ -35,8 +35,37 @@ def _get_conn() -> sqlite3.Connection:
             )
             """
         )
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        _migrate()
         _conn.commit()
     return _conn
+
+
+def _migrate():
+    try:
+        _conn.execute(
+            "ALTER TABLE chat_history ADD COLUMN chat_id INTEGER REFERENCES chats(id)"
+        )
+    except sqlite3.OperationalError:
+        pass
+
+    row = _conn.execute("SELECT COUNT(*) FROM chats").fetchone()[0]
+    if row == 0:
+        _conn.execute("INSERT INTO chats (title) VALUES (?)", ("General",))
+        default_id = _conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        _conn.execute(
+            "UPDATE chat_history SET chat_id = ? WHERE chat_id IS NULL",
+            (default_id,),
+        )
 
 
 def init_db():
@@ -89,27 +118,70 @@ def get_stats() -> dict:
     return {"total": total, "pending": pending}
 
 
-def save_chat(query: str, answer: str):
+def create_chat(title: str = "New Chat") -> int:
+    conn = _get_conn()
+    cur = conn.execute(
+        "INSERT INTO chats (title) VALUES (?)", (title,)
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def rename_chat(chat_id: int, title: str):
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO chat_history (query, answer) VALUES (?, ?)",
-        (query, answer),
+        "UPDATE chats SET title = ?, updated_at = datetime('now') WHERE id = ?",
+        (title, chat_id),
     )
     conn.commit()
 
 
-def load_chat_history(limit: int = 5) -> list[dict]:
+def delete_chat(chat_id: int):
+    conn = _get_conn()
+    conn.execute("DELETE FROM chat_history WHERE chat_id = ?", (chat_id,))
+    conn.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
+    conn.commit()
+
+
+def list_chats() -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM chat_history ORDER BY id DESC LIMIT ?", (limit,)
+        "SELECT id, title, created_at FROM chats ORDER BY updated_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_chat_title(chat_id: int) -> str | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT title FROM chats WHERE id = ?", (chat_id,)
+    ).fetchone()
+    return row["title"] if row else None
+
+
+def save_chat(query: str, answer: str, chat_id: int | None = None):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO chat_history (query, answer, chat_id) VALUES (?, ?, ?)",
+        (query, answer, chat_id),
+    )
+    conn.commit()
+
+
+def load_chat_history(chat_id: int, limit: int = 50) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM chat_history WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+        (chat_id, limit),
     ).fetchall()
     return [dict(r) for r in reversed(rows)]
 
 
-def load_recent_chat_context(n: int = 5) -> str:
+def load_recent_chat_context(chat_id: int, n: int = 5) -> str:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT query, answer FROM chat_history ORDER BY id DESC LIMIT ?", (n,)
+        "SELECT query, answer FROM chat_history WHERE chat_id = ? ORDER BY id DESC LIMIT ?",
+        (chat_id, n),
     ).fetchall()
     rows = list(reversed(rows))
     parts: list[str] = []

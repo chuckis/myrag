@@ -25,7 +25,7 @@ def main(page: ft.Page):
     tabs = ft.Tabs(
         selected_index=0,
         animation_duration=300,
-        on_change=lambda e: chat_view.load_history() if int(e.data) == 1 else None,
+        on_change=lambda e: chat_view.load_chat_list() if int(e.data) == 1 else None,
         tabs=[
             ft.Tab(
                 text="Add",
