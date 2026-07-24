@@ -106,6 +106,19 @@ def load_chat_history(limit: int = 5) -> list[dict]:
     return [dict(r) for r in reversed(rows)]
 
 
+def load_recent_chat_context(n: int = 5) -> str:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT query, answer FROM chat_history ORDER BY id DESC LIMIT ?", (n,)
+    ).fetchall()
+    rows = list(reversed(rows))
+    parts: list[str] = []
+    for r in rows:
+        parts.append(f"User: {r['query']}")
+        parts.append(f"Assistant: {r['answer']}")
+    return "\n".join(parts)
+
+
 def parse_docx(filepath: str) -> str:
     from docx import Document
 

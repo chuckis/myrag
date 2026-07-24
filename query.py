@@ -72,7 +72,7 @@ def ask_rag(query: str) -> str:
     return str(response).strip()
 
 
-def ask_rag_stream(query: str) -> Generator[str, None, None]:
+def ask_rag_stream(query: str, chat_context: str = "") -> Generator[str, None, None]:
     chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
     collection = chroma_client.get_or_create_collection("myrag")
     vector_store = ChromaVectorStore(chroma_collection=collection)
@@ -88,7 +88,12 @@ def ask_rag_stream(query: str) -> Generator[str, None, None]:
     nodes = retriever.retrieve(query)
     context = "\n\n".join(n.node.text for n in nodes)
 
-    prompt = QA_PROMPT.format(context_str=context, query_str=query)
+    if chat_context:
+        query_str = f"{chat_context}\n\nUser: {query}"
+    else:
+        query_str = query
+
+    prompt = QA_PROMPT.format(context_str=context, query_str=query_str)
     full_prompt = completion_to_prompt(prompt)
 
     from llama_cpp import Llama

@@ -2,7 +2,7 @@ import threading
 
 import flet as ft
 
-from storage import save_chat, load_chat_history
+from storage import save_chat, load_chat_history, load_recent_chat_context
 from query import ask_rag_stream
 
 
@@ -90,10 +90,12 @@ class ChatView:
         answer_text = answer_bubble.content.controls[1]
         full_answer = ""
 
+        chat_context = load_recent_chat_context(n=5)
+
         def stream_task():
             nonlocal full_answer
             try:
-                for token in ask_rag_stream(query):
+                for token in ask_rag_stream(query, chat_context=chat_context):
                     full_answer += token
                     answer_text.value = f"A: {full_answer}"
                     self.page.update()
