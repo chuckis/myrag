@@ -26,25 +26,19 @@ def main(page: ft.Page):
         selected_index=0,
         animation_duration=300,
         on_change=lambda e: chat_view.load_history() if int(e.data) == 1 else None,
-        length=2,
-        content=ft.Column(
-            expand=True,
-            controls=[
-                ft.TabBar(
-                    tabs=[
-                        ft.Tab(label="Add", icon=ft.Icons.ADD),
-                        ft.Tab(label="Chat", icon=ft.Icons.CHAT),
-                    ],
-                ),
-                ft.TabBarView(
-                    expand=True,
-                    controls=[
-                        add_view.build(),
-                        chat_view.build(),
-                    ],
-                ),
-            ],
-        ),
+        tabs=[
+            ft.Tab(
+                text="Add",
+                icon=ft.Icons.ADD,
+                content=add_view.build(),
+            ),
+            ft.Tab(
+                text="Chat",
+                icon=ft.Icons.CHAT,
+                content=chat_view.build(),
+            ),
+        ],
+        expand=True,
     )
 
     page.appbar = ft.AppBar(

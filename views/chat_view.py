@@ -43,7 +43,7 @@ class ChatView:
 
     def load_history(self):
         self.chat_list.controls.clear()
-        for msg in load_chat_history(limit=5):
+        for msg in load_chat_history(limit=50):
             self.chat_list.controls.append(
                 ft.Container(
                     ft.Column(
