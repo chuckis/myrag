@@ -15,6 +15,9 @@ class ChatView:
         self.current_chat_id: int | None = None
         self.current_messages: list[tuple[str, str]] = []
         self.streaming = False
+        self._mobile = False
+
+        self.page.on_resize = self._on_resize
 
         self.chat_list = ft.ListView(
             spacing=10,
@@ -76,6 +79,52 @@ class ChatView:
             ),
         )
 
+        self.mobile_menu_btn = ft.IconButton(
+            icon=ft.Icons.MENU,
+            tooltip="Chats",
+            on_click=self._toggle_sidebar,
+        )
+        self.mobile_new_chat_btn = ft.IconButton(
+            icon=ft.Icons.ADD_COMMENT,
+            tooltip="New chat",
+            on_click=self.on_new_chat,
+        )
+        self.mobile_header = ft.Row(
+            [self.mobile_menu_btn, self.mobile_new_chat_btn],
+            visible=False,
+            spacing=5,
+        )
+
+    def _is_mobile(self) -> bool:
+        w = self.page.width
+        return w is not None and w < 768
+
+    def _on_resize(self, e=None):
+        is_mobile = self._is_mobile()
+        if is_mobile != self._mobile:
+            self._mobile = is_mobile
+            self._apply_responsive()
+            self.page.update()
+
+    def _apply_responsive(self):
+        if self._mobile:
+            self.sidebar.visible = False
+            self.sidebar.width = None
+            self.mobile_menu_btn.visible = True
+            self.mobile_header.visible = True
+        else:
+            self.sidebar.visible = True
+            self.sidebar.width = 220
+            self.mobile_menu_btn.visible = False
+            self.mobile_header.visible = False
+
+    def _toggle_sidebar(self, e=None):
+        self.sidebar.visible = not self.sidebar.visible
+        if self.sidebar.visible:
+            w = int(self.page.width * 0.8) if self.page.width else 300
+            self.sidebar.width = min(w, 320)
+        self.page.update()
+
     def build(self) -> ft.Control:
         chats = list_chats()
         if not chats:
@@ -99,10 +148,20 @@ class ChatView:
                 ft.Text("No messages yet.", italic=True)
             )
 
-        return ft.Row(
+        self._mobile = self._is_mobile()
+        self._apply_responsive()
+
+        return ft.Column(
             [
-                self.sidebar,
-                ft.Container(self.main_area, expand=True, padding=10),
+                self.mobile_header,
+                ft.Row(
+                    [
+                        self.sidebar,
+                        ft.Container(self.main_area, expand=True, padding=10),
+                    ],
+                    expand=True,
+                    spacing=0,
+                ),
             ],
             expand=True,
             spacing=0,
@@ -133,7 +192,7 @@ class ChatView:
                         overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                     ft.IconButton(
-                        icon=ft.Icons.EDIT_OUTLINE,
+                        icon=ft.Icons.EDIT_OUTLINED,
                         icon_size=14,
                         tooltip="Rename",
                         on_click=lambda _, cid=chat["id"]: self.on_rename_chat(cid),
@@ -149,7 +208,7 @@ class ChatView:
             ),
             bgcolor=ft.Colors.SECONDARY_CONTAINER if is_active else None,
             border_radius=5,
-            padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            padding=ft.Padding(left=8, top=4, right=8, bottom=4),
             on_click=lambda _, cid=chat["id"]: self.switch_chat(cid),
         )
 
@@ -186,6 +245,9 @@ class ChatView:
                 ft.Text("No messages yet.", italic=True)
             )
 
+        if self._mobile:
+            self.sidebar.visible = False
+
         self.load_chat_list()
 
     def on_new_chat(self, _):
@@ -198,16 +260,14 @@ class ChatView:
         title_field = ft.TextField(value=current_title, autofocus=True)
 
         def close(e):
-            dlg.open = False
-            self.page.update()
+            self.page.pop_dialog()
 
         def save(e):
             new_title = title_field.value
             if new_title:
                 rename_chat(chat_id, new_title)
                 self.load_chat_list()
-            dlg.open = False
-            self.page.update()
+            self.page.pop_dialog()
 
         dlg = ft.AlertDialog(
             title=ft.Text("Rename chat"),
@@ -218,21 +278,17 @@ class ChatView:
             ],
         )
 
-        self.page.dialog = dlg
-        dlg.open = True
-        self.page.update()
+        self.page.show_dialog(dlg)
 
     def on_delete_chat(self, chat_id: int):
         chat_title = get_chat_title(chat_id) or "Untitled"
 
         def close(e):
-            dlg.open = False
-            self.page.update()
+            self.page.pop_dialog()
 
         def confirm(e):
             delete_chat(chat_id)
-            dlg.open = False
-            self.page.update()
+            self.page.pop_dialog()
             chats = list_chats()
             if chats:
                 self.switch_chat(chats[0]["id"])
@@ -248,9 +304,7 @@ class ChatView:
             ],
         )
 
-        self.page.dialog = dlg
-        dlg.open = True
-        self.page.update()
+        self.page.show_dialog(dlg)
 
     def on_ask(self, _):
         query = self.query_field.value

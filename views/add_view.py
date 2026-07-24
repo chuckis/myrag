@@ -13,7 +13,9 @@ class AddView:
         self.page = page
         self.log_text = ft.Text(value="", selectable=True, size=13)
         self.status_text = ft.Text(size=13)
-        self.source_field = ft.TextField(label="Source", value="default", width=250)
+        self.source_field = ft.TextField(
+            label="Source", value="default", expand=1,
+        )
         self.type_dropdown = ft.Dropdown(
             label="Type",
             value="text",
@@ -22,17 +24,17 @@ class AddView:
                 ft.dropdown.Option("chat"),
                 ft.dropdown.Option("docx"),
             ],
-            width=150,
+            expand=1,
         )
         self.content_field = ft.TextField(
             label="Text content",
             multiline=True,
             min_lines=4,
             max_lines=10,
-            width=600,
+            expand=True,
         )
         self.file_path_field = ft.TextField(
-            label="File path (.docx / .json)", width=600,
+            label="File path (.docx / .json)", expand=True,
         )
         self.index_button = ft.ElevatedButton(
             "▶ Run Indexer",
@@ -43,23 +45,54 @@ class AddView:
     def build(self) -> ft.Control:
         return ft.Column(
             [
-                ft.Row(
-                    [self.source_field, self.type_dropdown],
+                ft.ResponsiveRow(
+                    [
+                        ft.Container(self.source_field, col={"xs": 12, "sm": 6}),
+                        ft.Container(self.type_dropdown, col={"xs": 12, "sm": 6}),
+                    ],
                     spacing=10,
                 ),
                 self.content_field,
-                ft.Row(
-                    [self.file_path_field, ft.ElevatedButton("➕ Add File", on_click=self.on_add_file)],
+                ft.ResponsiveRow(
+                    [
+                        ft.Container(
+                            self.file_path_field, col={"xs": 12, "sm": 8, "md": 9},
+                        ),
+                        ft.Container(
+                            ft.ElevatedButton(
+                                "➕ Add File", on_click=self.on_add_file,
+                            ),
+                            col={"xs": 12, "sm": 4, "md": 3},
+                        ),
+                    ],
                     spacing=10,
                 ),
-                ft.Text("Supports: .docx (stored for indexing) | .json (imported as chat messages)", size=11, italic=True),
-                ft.Row(
-                    [ft.ElevatedButton("➕ Add Text", on_click=self.on_add)],
+                ft.Text(
+                    "Supports: .docx (stored for indexing) | "
+                    ".json (imported as chat messages)",
+                    size=11, italic=True,
+                ),
+                ft.ResponsiveRow(
+                    [
+                        ft.Container(
+                            ft.ElevatedButton(
+                                "➕ Add Text", on_click=self.on_add,
+                            ),
+                            col={"xs": 12, "sm": 4, "md": 3},
+                        ),
+                    ],
                     spacing=10,
                 ),
                 ft.Divider(),
-                ft.Row(
-                    [self.index_button, self.index_progress],
+                ft.ResponsiveRow(
+                    [
+                        ft.Container(
+                            self.index_button, col={"xs": 12, "sm": 4, "md": 3},
+                        ),
+                        ft.Container(
+                            self.index_progress, col={"xs": 12, "sm": 8, "md": 9},
+                        ),
+                    ],
                     spacing=10,
                 ),
                 ft.Container(
@@ -67,13 +100,13 @@ class AddView:
                     border=ft.Border.all(1, ft.Colors.OUTLINE),
                     border_radius=5,
                     padding=10,
-                    width=600,
-                    height=200,
+                    expand=True,
                 ),
                 self.status_text,
             ],
             spacing=10,
             scroll=ft.ScrollMode.AUTO,
+            expand=True,
         )
 
     def on_add(self, _):
@@ -145,13 +178,18 @@ class AddView:
                 from storage import init_db as s_init
                 s_init()
                 run_indexer()
+            except Exception as e:
+                print(f"Indexer failed: {e}")
             finally:
                 sys.stdout = old_stdout
 
             self.log_text.value = buf.getvalue()
             self.index_button.disabled = False
             self.index_progress.visible = False
-            self.page.update()
+            try:
+                self.page.update()
+            except Exception:
+                pass
             self.refresh_status()
 
         threading.Thread(target=task, daemon=True).start()
