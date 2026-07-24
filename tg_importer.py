@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import time
 from typing import Any
 
 from storage import bulk_add_to_buffer, init_db
@@ -61,7 +62,10 @@ def parse_telegram_export(filepath: str, min_length: int = 15) -> list[dict[str,
 
 def import_telegram(filepath: str, min_length: int = 15) -> dict[str, int]:
     init_db()
+
+    t0 = time.perf_counter()
     records = parse_telegram_export(filepath, min_length)
+    t1 = time.perf_counter()
 
     if not records:
         return {"total": 0, "skipped": 0, "imported": 0}
@@ -70,7 +74,12 @@ def import_telegram(filepath: str, min_length: int = 15) -> dict[str, int]:
         (r["content"], r["source"], r["type"], r["created_at"])
         for r in records
     ]
+
+    t2 = time.perf_counter()
     bulk_add_to_buffer(tuples)
+    t3 = time.perf_counter()
+
+    print(f"[tg] Parse: {t1-t0:.3f}s | SQLite: {t3-t2:.3f}s | Records: {len(records)}", file=sys.stderr)
 
     return {
         "total": len(records),

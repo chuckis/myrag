@@ -1,4 +1,6 @@
 import json
+import sys
+import time
 from typing import Any
 
 from storage import bulk_add_to_buffer, init_db
@@ -39,6 +41,30 @@ def parse_logseq_export(filepath: str) -> list[dict[str, Any]]:
 
 
 def import_logseq(filepath: str) -> dict[str, int]:
+    init_db()
+
+    t0 = time.perf_counter()
+    records = parse_logseq_export(filepath)
+    t1 = time.perf_counter()
+
+    if not records:
+        return {"total": 0, "imported": 0}
+
+    tuples = [
+        (r["content"], r["source"], r["type"], r["created_at"])
+        for r in records
+    ]
+
+    t2 = time.perf_counter()
+    bulk_add_to_buffer(tuples)
+    t3 = time.perf_counter()
+
+    print(f"[logseq] Parse: {t1-t0:.3f}s | SQLite: {t3-t2:.3f}s | Records: {len(records)}", file=sys.stderr)
+
+    return {
+        "total": len(records),
+        "imported": len(records),
+    }seq(filepath: str) -> dict[str, int]:
     init_db()
     records = parse_logseq_export(filepath)
 
