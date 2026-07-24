@@ -67,6 +67,34 @@ def _migrate():
             (default_id,),
         )
 
+    _migrate_staging_types()
+
+
+def _migrate_staging_types():
+    try:
+        _conn.execute(
+            "ALTER TABLE staging ADD COLUMN _migrated INTEGER DEFAULT 0"
+        )
+    except sqlite3.OperationalError:
+        return
+
+    _conn.execute(
+        """CREATE TABLE staging_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL,
+            type TEXT NOT NULL CHECK(type IN ('chat', 'docx', 'text', 'logseq')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            is_processed INTEGER NOT NULL DEFAULT 0
+        )"""
+    )
+    _conn.execute(
+        "INSERT INTO staging_new (id, content, source, type, created_at, is_processed) "
+        "SELECT id, content, source, type, created_at, is_processed FROM staging"
+    )
+    _conn.execute("DROP TABLE staging")
+    _conn.execute("ALTER TABLE staging_new RENAME TO staging")
+
 
 def init_db():
     _get_conn()

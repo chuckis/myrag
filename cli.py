@@ -4,6 +4,7 @@ import sys
 from storage import init_db, add_to_buffer, get_stats
 from indexer import run_indexer
 from query import ask_rag
+from logseq_importer import import_logseq
 from tg_importer import import_telegram
 
 
@@ -37,6 +38,12 @@ def cmd_import_tg(args):
     print(f"Imported:       {stats['imported']}")
 
 
+def cmd_import_logseq(args):
+    stats = import_logseq(args.file)
+    print(f"Total blocks: {stats['total']}")
+    print(f"Imported:     {stats['imported']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="MyRAG - Local RAG System")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -63,6 +70,9 @@ def main():
     p_import_tg.add_argument("-f", "--file", default="result.json", help="Path to result.json")
     p_import_tg.add_argument("--min-length", type=int, default=15, help="Minimum text length")
 
+    p_import_logseq = sub.add_parser("import-logseq", help="Import Logseq JSON export")
+    p_import_logseq.add_argument("-f", "--file", default="export.json", help="Path to Logseq export JSON")
+
     args = parser.parse_args()
 
     commands = {
@@ -71,6 +81,7 @@ def main():
         "ask": cmd_ask,
         "status": cmd_status,
         "import-tg": cmd_import_tg,
+        "import-logseq": cmd_import_logseq,
     }
     commands[args.command](args)
 

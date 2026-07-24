@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 
@@ -5,6 +6,7 @@ import flet as ft
 
 from storage import add_to_buffer, get_stats
 from indexer import run_indexer
+from logseq_importer import import_logseq
 from tg_importer import import_telegram
 
 
@@ -69,7 +71,7 @@ class AddView:
                 ),
                 ft.Text(
                     "Supports: .docx (stored for indexing) | "
-                    ".json (imported as chat messages)",
+                    ".json (Telegram export or Logseq export)",
                     size=11, italic=True,
                 ),
                 ft.ResponsiveRow(
@@ -145,11 +147,26 @@ class AddView:
 
         def task():
             try:
-                stats = import_telegram(path)
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+
+                if "blocks" in data:
+                    stats = import_logseq(path)
+                    label = "Logseq"
+                elif "messages" in data:
+                    stats = import_telegram(path)
+                    label = "Telegram"
+                else:
+                    self.log_text.value = (
+                        "Unknown JSON format. Expected 'blocks' (Logseq) "
+                        "or 'messages' (Telegram) key."
+                    )
+                    return
+
                 self.log_text.value = (
-                    f"Telegram import complete:\n"
-                    f"  Total messages: {stats['total']}\n"
-                    f"  Imported:       {stats['imported']}"
+                    f"{label} import complete:\n"
+                    f"  Total items: {stats['total']}\n"
+                    f"  Imported:    {stats['imported']}"
                 )
             except Exception as e:
                 self.log_text.value = f"Import failed: {e}"
