@@ -1,154 +1,81 @@
-# MyRAG — локальная RAG-система на GGUF моделях
+# MyRAG — Local RAG on GGUF Models
 
-Лёгкая, полностью локальная RAG-система (Retrieval-Augmented Generation) для накопления, индексации и поиска по текстовым логам, документам (`.docx`, `.txt`, `.md`) с генерацией ответов на естественном языке.
+Fully offline RAG system for accumulating, indexing, and querying text over local GGUF models (LLM + embeddings).
 
-## Особенности
-
-- **100% офлайн** — никаких внешних API, всё работает на вашем CPU
-- **Нулевая фоновая нагрузка** — процессы завершаются когда не нужны
-- **Батчевая индексация** — сбор данных и расчёт эмбеддингов разнесены во времени
-- **Дедупликация** — повторная индексация уже обработанных данных запрещена на уровне хэшей
-- **Поддержка .docx** — автоматический парсинг документов Word
-
-## Архитектура
+## Data Flow
 
 ```
-[ Источники / Боты ]
-         │
-         ▼ (быстрая запись)
-┌──────────────────────┐
-│   SQLite (буфер)     │
-│   staging records    │
-└──────────┬───────────┘
-           │ (батч-запуск)
-           ▼
-┌──────────────────────┐
-│  LlamaIndex Indexer  │
-│  SentenceSplitter    │
-│  nomic-embed-text    │
-└──────────┬───────────┘
-           ▼
-┌──────────────────────┐
-│     ChromaDB         │
-│  (векторное хранилище)│
-└──────────┬───────────┘
-           ▲
-           │ (поиск контекста)
-┌──────────────────────┐
-│  LlamaIndex Query    │
-│  Qwen2.5 1.5B        │
-└──────────────────────┘
+Source(s) → SQLite staging → LlamaIndex indexer (chunking + embeddings) → ChromaDB → LLM query engine
 ```
 
-## Требования
+## Requirements
 
-- **ОС:** Linux (Ubuntu/Debian/Arch)
-- **Python:** 3.10+
-- **CPU:** x86_64 с поддержкой AVX2
-- **RAM:** от 4 GB (рекомендуется 8+)
+- **OS:** Linux (x86_64, AVX2), Python 3.10+
+- **RAM:** 4 GB min, 8+ GB recommended
+- **Models** (pre-downloaded to `~/models/`):
+  - `qwen2.5-1.5b-instruct-q4_k_m.gguf` (LLM)
+  - `nomic-embed-text-v1.5.Q4_K_M.gguf` (embedding)
 
-## Установка
+## Quick Start
 
 ```bash
-# Клонировать репозиторий
-cd myrag
-
-# Создать виртуальное окружение
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Установить зависимости
+python3 -m venv .venv && source .venv/bin/activate
 CMAKE_ARGS="-DGGML_AVX2=ON -DGGML_FMA=ON" pip install llama-cpp-python
 pip install -r requirements.txt
 ```
 
-### Скачивание моделей
+## Usage
 
 ```bash
-mkdir -p ~/models
+# Add text
+python cli.py add "your text" --source note --type text
 
-# LLM (для генерации ответов)
-wget -O ~/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
-  https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
+# Add file (.docx / .pdf / .json for Telegram/Logseq export)
+python cli.py add /path/to/file.docx --source report --type docx
+python cli.py import-pdf -f doc.pdf
+python cli.py import-tg -f telegram.json
+python cli.py import-logseq -f logseq.json
 
-# Embedding (для векторных эмбеддингов)
-wget -O ~/models/nomic-embed-text-v1.5.Q4_K_M.gguf \
-  https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf
+# Index pending records
+python cli.py index
+
+# Ask a question
+python cli.py ask "What is Python?"
+
+# Show stats
+python cli.py status
 ```
 
-## Использование
-
-### Добавить текст в буфер
+## GUI (Flet)
 
 ```bash
-python3 cli.py add "Ваш текст" --source chat_id --type text
+python app.py          # desktop window
+MYRAG_WEB=1 python app.py   # web browser
+./run.sh               # desktop
+./run.sh --web         # web browser
 ```
 
-Типы: `text`, `chat`, `docx` (для `.docx` передаётся путь к файлу).
+## Configuration (`config.py`)
 
-### Добавить документ .docx
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `N_THREADS` | 4 | CPU threads for LLM/embedding |
+| `N_CTX` | 2048 | Context window size |
+| `CHUNK_SIZE` | 512 | Chunk size in tokens |
+| `CHUNK_OVERLAP` | 50 | Chunk overlap |
+| `TOP_K` | 3 | Retrieved chunks per query |
 
-```bash
-python3 cli.py add /path/to/document.docx --source report --type docx
+## Performance (i5-4590, 16 GB)
+
+| Operation | Time |
+|-----------|------|
+| 100 records → buffer | ~21 ms |
+| Index 1 document | ~0.5 s |
+| Index 100 documents | ~50 s |
+| Answer a question | ~3–8 s |
+
+## Schedule (cron)
+
+```cron
+0 3 * * * cd /home/user/myrag && .venv/bin/python cli.py index
 ```
-
-### Запустить индексацию
-
-```bash
-python3 cli.py index
-```
-
-Процесс: чтение буфера → проверка хэшей → чанкинг (512 токенов, overlap 50) → эмбеддинги → запись в ChromaDB.
-
-### Задать вопрос
-
-```bash
-python3 cli.py ask "Какой язык используется для веб-разработки?"
-# → Python
-```
-
-### Статус буфера
-
-```bash
-python3 cli.py status
-# Total records: 42
-# Pending index: 0
-# Indexed:      42
-```
-
-## Автоматизация
-
-### Индексация по расписанию (cron)
-
-```bash
-# Каждый день в 03:00
-0 3 * * * cd /home/user/myrag && .venv/bin/python3 cli.py index
-```
-
-## Производительность (i5-4590, 16GB RAM)
-
-| Операция | Время |
-|----------|-------|
-| 100 записей в буфер | ~21 ms |
-| Индексация 1 документа | ~0.5 s |
-| Индексация 100 документов | ~50 s |
-| Ответ на вопрос | ~3-8 s |
-| Повторная индексация (без новых данных) | ~0 s |
-
-## Конфигурация
-
-Все настройки в `config.py`:
-
-| Параметр | Значение | Описание |
-|----------|----------|----------|
-| `N_THREADS` | 4 | Количество ядер CPU |
-| `N_CTX` | 2048 | Размер контекста |
-| `CHUNK_SIZE` | 512 | Размер чанка в токенах |
-| `CHUNK_OVERLAP` | 50 | Перекрытие чанков |
-| `TOP_K` | 3 | Количество релевантных чанков |
-
-## Как это работает
-
-1. **Storage** — данные пишутся в SQLite (буфер) с флагом `is_processed = 0`. Мгновенная запись.
-2. **Indexer** — запускается вручную или по cron. Читает буфер, проверяет SHA256 хэши на дубликаты, нарезает текст на чанки, генерирует векторные эмбеддинги через `nomic-embed-text`, сохраняет в ChromaDB и помечает записи как обработанные.
-3. **Query** — принимает вопрос, ищет 3 наиболее релевантных чанка в ChromaDB, формирует промпт с контекстом и передаёт в `Qwen2.5 1.5B` для генерации ответа.

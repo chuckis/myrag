@@ -7,6 +7,7 @@ import flet as ft
 from storage import add_to_buffer, get_stats, get_indexing_estimate
 from indexer import run_indexer
 from logseq_importer import import_logseq
+from pdf_importer import import_pdf
 from tg_importer import import_telegram
 
 
@@ -36,7 +37,7 @@ class AddView:
             expand=True,
         )
         self.file_path_field = ft.TextField(
-            label="File path (.docx / .json)", expand=True,
+            label="File path (.docx / .pdf / .json)", expand=True,
         )
         self.index_button = ft.ElevatedButton(
             "▶ Run Indexer",
@@ -71,7 +72,8 @@ class AddView:
                 ),
                 ft.Text(
                     "Supports: .docx (stored for indexing) | "
-                    ".json (Telegram export or Logseq export)",
+                    ".pdf (imported as text) | "
+                    ".json (Telegram or Logseq export)",
                     size=11, italic=True,
                 ),
                 ft.ResponsiveRow(
@@ -133,10 +135,12 @@ class AddView:
             self.file_path_field.value = ""
             self.page.update()
             self.refresh_status()
+        elif ext == ".pdf":
+            self._import_pdf(path)
         else:
             self.log_text.value = (
                 f"Unsupported file type '{ext}'. "
-                f"Use .docx for documents or .json for Telegram exports."
+                f"Use .docx, .pdf or .json."
             )
             self.page.update()
 
@@ -170,6 +174,29 @@ class AddView:
                 )
             except Exception as e:
                 self.log_text.value = f"Import failed: {e}"
+            finally:
+                self.file_path_field.value = ""
+                self.file_path_field.disabled = False
+                self.page.update()
+                self.refresh_status()
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _import_pdf(self, path: str):
+        self.file_path_field.disabled = True
+        self.log_text.value = f"Importing {path}..."
+        self.page.update()
+
+        def task():
+            try:
+                stats = import_pdf(path)
+                self.log_text.value = (
+                    f"PDF import complete:\n"
+                    f"  Total:      {stats['total']}\n"
+                    f"  Imported:   {stats['imported']}"
+                )
+            except Exception as e:
+                self.log_text.value = f"PDF import failed: {e}"
             finally:
                 self.file_path_field.value = ""
                 self.file_path_field.disabled = False
