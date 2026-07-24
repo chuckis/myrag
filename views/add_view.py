@@ -1,9 +1,11 @@
+import os
 import threading
 
 import flet as ft
 
 from storage import add_to_buffer, get_stats
 from indexer import run_indexer
+from tg_importer import import_telegram
 
 
 class AddView:
@@ -30,7 +32,7 @@ class AddView:
             width=600,
         )
         self.file_path_field = ft.TextField(
-            label="File path (for docx)", width=600,
+            label="File path (.docx / .json)", width=600,
         )
         self.index_button = ft.ElevatedButton(
             "▶ Run Indexer",
@@ -50,6 +52,7 @@ class AddView:
                     [self.file_path_field, ft.ElevatedButton("➕ Add File", on_click=self.on_add_file)],
                     spacing=10,
                 ),
+                ft.Text("Supports: .docx (stored for indexing) | .json (imported as chat messages)", size=11, italic=True),
                 ft.Row(
                     [ft.ElevatedButton("➕ Add Text", on_click=self.on_add)],
                     spacing=10,
@@ -86,10 +89,44 @@ class AddView:
         path = self.file_path_field.value
         if not path:
             return
-        add_to_buffer(path, self.source_field.value, "docx")
-        self.file_path_field.value = ""
+        ext = os.path.splitext(path)[1].lower()
+
+        if ext == ".json":
+            self._import_json(path)
+        elif ext == ".docx":
+            add_to_buffer(path, self.source_field.value, "docx")
+            self.file_path_field.value = ""
+            self.page.update()
+            self.refresh_status()
+        else:
+            self.log_text.value = (
+                f"Unsupported file type '{ext}'. "
+                f"Use .docx for documents or .json for Telegram exports."
+            )
+            self.page.update()
+
+    def _import_json(self, path: str):
+        self.file_path_field.disabled = True
+        self.log_text.value = f"Importing {path}..."
         self.page.update()
-        self.refresh_status()
+
+        def task():
+            try:
+                stats = import_telegram(path)
+                self.log_text.value = (
+                    f"Telegram import complete:\n"
+                    f"  Total messages: {stats['total']}\n"
+                    f"  Imported:       {stats['imported']}"
+                )
+            except Exception as e:
+                self.log_text.value = f"Import failed: {e}"
+            finally:
+                self.file_path_field.value = ""
+                self.file_path_field.disabled = False
+                self.page.update()
+                self.refresh_status()
+
+        threading.Thread(target=task, daemon=True).start()
 
     def on_index(self, _):
         self.index_button.disabled = True

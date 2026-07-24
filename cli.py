@@ -4,6 +4,7 @@ import sys
 from storage import init_db, add_to_buffer, get_stats
 from indexer import run_indexer
 from query import ask_rag
+from tg_importer import import_telegram
 
 
 def cmd_add(args):
@@ -30,6 +31,12 @@ def cmd_status(args):
     print(f"Indexed:      {stats['total'] - stats['pending']}")
 
 
+def cmd_import_tg(args):
+    stats = import_telegram(args.file, args.min_length)
+    print(f"Total messages: {stats['total']}")
+    print(f"Imported:       {stats['imported']}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="MyRAG - Local RAG System")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -52,6 +59,10 @@ def main():
 
     p_status = sub.add_parser("status", help="Show buffer stats")
 
+    p_import_tg = sub.add_parser("import-tg", help="Import Telegram export")
+    p_import_tg.add_argument("-f", "--file", default="result.json", help="Path to result.json")
+    p_import_tg.add_argument("--min-length", type=int, default=15, help="Minimum text length")
+
     args = parser.parse_args()
 
     commands = {
@@ -59,6 +70,7 @@ def main():
         "index": cmd_index,
         "ask": cmd_ask,
         "status": cmd_status,
+        "import-tg": cmd_import_tg,
     }
     commands[args.command](args)
 

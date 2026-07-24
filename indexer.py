@@ -44,6 +44,7 @@ def run_indexer():
 
     new_docs = []
     skipped = 0
+    processed_ids: list[int] = []
     for rec in records:
         content = rec["content"]
         doc_type = rec["type"]
@@ -59,6 +60,7 @@ def run_indexer():
 
         if doc_hash in known_hashes:
             skipped += 1
+            processed_ids.append(rec["id"])
             continue
 
         doc = Document(
@@ -72,13 +74,18 @@ def run_indexer():
             },
         )
         new_docs.append(doc)
+        processed_ids.append(rec["id"])
 
     if not new_docs:
+        if processed_ids:
+            mark_processed(processed_ids)
         print(
-            f"No new documents to index ({skipped} skipped by dedup). "
-            f"Marking {len(records)} records as processed."
+            f"No new documents to index ({skipped} skipped by dedup)."
         )
-        mark_processed([r["id"] for r in records])
+        if len(processed_ids) < len(records):
+            print(
+                f"  {len(records) - len(processed_ids)} records kept unprocessed due to errors."
+            )
         return
 
     print(
@@ -116,5 +123,5 @@ def run_indexer():
     known_hashes.update(d.metadata["content_hash"] for d in new_docs)
     _save_known_hashes(known_hashes)
 
-    mark_processed([r["id"] for r in records])
+    mark_processed(processed_ids)
     print(f"Done. Indexed {len(new_docs)} documents.")

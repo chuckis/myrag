@@ -52,10 +52,10 @@ def add_to_buffer(content: str, source: str, type_: str):
     conn.commit()
 
 
-def bulk_add_to_buffer(records: list[tuple[str, str, str]]):
+def bulk_add_to_buffer(records: list[tuple[str, str, str, str | None]]):
     conn = _get_conn()
     conn.executemany(
-        "INSERT INTO staging (content, source, type) VALUES (?, ?, ?)",
+        "INSERT INTO staging (content, source, type, created_at) VALUES (?, ?, ?, COALESCE(?, datetime('now')))",
         records,
     )
     conn.commit()
