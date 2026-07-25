@@ -64,22 +64,6 @@ def import_logseq(filepath: str) -> dict[str, int]:
     return {
         "total": len(records),
         "imported": len(records),
-    }seq(filepath: str) -> dict[str, int]:
-    init_db()
-    records = parse_logseq_export(filepath)
-
-    if not records:
-        return {"total": 0, "imported": 0}
-
-    tuples = [
-        (r["content"], r["source"], r["type"], r["created_at"])
-        for r in records
-    ]
-    bulk_add_to_buffer(tuples)
-
-    return {
-        "total": len(records),
-        "imported": len(records),
     }
 
 
