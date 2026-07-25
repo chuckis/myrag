@@ -71,7 +71,7 @@ class SettingsView:
             set_setting("openrouter_api_key", api_field.value)
             set_setting("openrouter_model", selected_model)
             set_setting("force_local", "1" if force_local_switch.value else "0")
-            self.page.close_dialog()
+            self.page.pop_dialog()
 
         dlg = ft.AlertDialog(
             title=ft.Text("Settings"),
@@ -88,7 +88,7 @@ class SettingsView:
                 scroll=ft.ScrollMode.AUTO,
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda _: self.page.close_dialog()),
+                ft.TextButton("Cancel", on_click=lambda _: self.page.pop_dialog()),
                 ft.TextButton("Save", on_click=save),
             ],
         )
