@@ -3,6 +3,7 @@ import flet as ft
 from storage import init_db
 from views.add_view import AddView
 from views.chat_view import ChatView
+from views.settings_view import SettingsView
 
 
 def main(page: ft.Page):
@@ -48,9 +49,16 @@ def main(page: ft.Page):
         content=content_row,
     )
 
+    settings_view = SettingsView(page)
+
     page.appbar = ft.AppBar(
         title=ft.Text("MyRag"),
         actions=[
+            ft.IconButton(
+                icon=ft.Icons.SETTINGS,
+                tooltip="Settings",
+                on_click=lambda _: settings_view.open(),
+            ),
             ft.IconButton(
                 icon=ft.Icons.DARK_MODE,
                 tooltip="Toggle theme",

@@ -5,6 +5,7 @@ import flet as ft
 from storage import (
     save_chat, load_chat_history, get_chat_title,
     create_chat, rename_chat, delete_chat, list_chats,
+    get_all_settings,
 )
 from query import ask_rag_stream
 
@@ -47,6 +48,13 @@ class ChatView:
             spacing=10,
         )
 
+        self.status_bar = ft.Text(
+            "🏠 Local: Qwen 1.5B",
+            size=11,
+            italic=True,
+            color=ft.Colors.OUTLINE,
+        )
+
         self.chat_container = ft.Container(
             self.chat_list,
             border=ft.Border.all(1, ft.Colors.OUTLINE),
@@ -56,7 +64,7 @@ class ChatView:
         )
 
         self.main_area = ft.Column(
-            [self.chat_container, self.input_row],
+            [self.chat_container, self.input_row, self.status_bar],
             spacing=10,
             expand=True,
         )
@@ -317,6 +325,11 @@ class ChatView:
         if not query or self.streaming:
             return
 
+        settings = get_all_settings()
+        api_key = settings.get("openrouter_api_key", "")
+        model_name = settings.get("openrouter_model", "")
+        force_local = settings.get("force_local", "0") == "1"
+
         self.streaming = True
         self._stop_event = threading.Event()
         self.ask_button.visible = False
@@ -347,6 +360,7 @@ class ChatView:
 
         answer_text = answer_bubble.content.controls[1]
         full_answer = ""
+        had_fallback = False
 
         recent = self.current_messages[-5:]
         chat_context = "\n".join(
@@ -354,9 +368,18 @@ class ChatView:
         )
 
         def stream_task():
-            nonlocal full_answer
+            nonlocal full_answer, had_fallback
             try:
-                for token in ask_rag_stream(query, chat_context=chat_context, stop_event=self._stop_event):
+                for token in ask_rag_stream(
+                    query,
+                    chat_context=chat_context,
+                    stop_event=self._stop_event,
+                    api_key=api_key,
+                    model_name=model_name,
+                    force_local=force_local,
+                ):
+                    if not had_fallback and token.startswith("⚠️ OpenRouter failed"):
+                        had_fallback = True
                     full_answer += token
                     answer_text.value = f"A: {full_answer}"
                     self.page.update()
@@ -368,6 +391,12 @@ class ChatView:
             if full_answer and not cancelled:
                 save_chat(query, full_answer, self.current_chat_id)
                 self.current_messages.append((query, full_answer))
+
+                if force_local or not api_key or had_fallback:
+                    self.status_bar.value = "🏠 Local: Qwen 1.5B"
+                else:
+                    self.status_bar.value = f"🌐 OpenRouter: {model_name or 'default'}"
+                self.page.update()
 
             self.streaming = False
             self._stop_event = None

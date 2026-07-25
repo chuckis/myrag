@@ -21,7 +21,12 @@ def cmd_index(args):
 
 
 def cmd_ask(args):
-    response = ask_rag(args.query)
+    response = ask_rag(
+        args.query,
+        api_key=args.api_key or "",
+        model_name=args.model or "",
+        force_local=args.force_local,
+    )
     print(response)
 
 
@@ -70,6 +75,18 @@ def main():
 
     p_ask = sub.add_parser("ask", help="Ask a question")
     p_ask.add_argument("query", help="Your question")
+    p_ask.add_argument(
+        "--model", default="",
+        help="OpenRouter model name (e.g. qwen/qwen-2.5-72b-instruct)",
+    )
+    p_ask.add_argument(
+        "--api-key", default="",
+        help="OpenRouter API key (overrides OPENROUTER_API_KEY env)",
+    )
+    p_ask.add_argument(
+        "--force-local", action="store_true",
+        help="Force local LLM only",
+    )
 
     p_status = sub.add_parser("status", help="Show buffer stats")
 

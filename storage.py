@@ -6,6 +6,30 @@ from config import DB_PATH
 _conn: sqlite3.Connection | None = None
 
 
+def get_setting(key: str) -> str | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = ?", (key,)
+    ).fetchone()
+    return row["value"] if row else None
+
+
+def set_setting(key: str, value: str):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+
+
+def get_all_settings() -> dict[str, str]:
+    conn = _get_conn()
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
 def _get_conn() -> sqlite3.Connection:
     global _conn
     if _conn is None:
@@ -52,6 +76,14 @@ def _get_conn() -> sqlite3.Connection:
                 doc_count INTEGER NOT NULL,
                 duration_seconds REAL NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )
             """
         )

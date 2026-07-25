@@ -1,3 +1,4 @@
+import queue
 import threading
 from typing import Generator, Sequence
 
@@ -7,7 +8,10 @@ from llama_index.core.base.llms.types import ChatMessage
 from llama_index.llms.llama_cpp import LlamaCPP
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
-from config import CHROMA_DIR, LLM_MODEL_PATH, N_THREADS, N_CTX, TOP_K
+from config import (
+    CHROMA_DIR, LLM_MODEL_PATH, N_THREADS, N_CTX, TOP_K,
+    OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_TIMEOUT, OPENROUTER_MAX_TOKENS,
+)
 from embeddings import LlamaCPPEmbedding
 
 QA_PROMPT = PromptTemplate(
@@ -40,14 +44,8 @@ def completion_to_prompt(completion: str) -> str:
     )
 
 
-def ask_rag(query: str) -> str:
-    chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
-    collection = chroma_client.get_or_create_collection("myrag")
-    vector_store = ChromaVectorStore(chroma_collection=collection)
-
-    embed_model = LlamaCPPEmbedding()
-
-    llm = LlamaCPP(
+def _get_local_llm() -> LlamaCPP:
+    return LlamaCPP(
         model_path=LLM_MODEL_PATH,
         temperature=0.1,
         max_new_tokens=512,
@@ -58,32 +56,99 @@ def ask_rag(query: str) -> str:
         verbose=False,
     )
 
-    index = VectorStoreIndex.from_vector_store(
-        vector_store,
-        embed_model=embed_model,
-    )
 
-    query_engine = index.as_query_engine(
-        llm=llm,
-        similarity_top_k=TOP_K,
-        text_qa_template=QA_PROMPT,
-    )
-
-    response = query_engine.query(query)
-    return str(response).strip()
-
-
-def ask_rag_stream(query: str, chat_context: str = "", stop_event: threading.Event | None = None) -> Generator[str, None, None]:
+def _build_index():
     chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
     collection = chroma_client.get_or_create_collection("myrag")
     vector_store = ChromaVectorStore(chroma_collection=collection)
-
     embed_model = LlamaCPPEmbedding()
+    return VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
 
-    index = VectorStoreIndex.from_vector_store(
-        vector_store,
-        embed_model=embed_model,
-    )
+
+def ask_rag(
+    query: str,
+    api_key: str = "",
+    model_name: str = "",
+    force_local: bool = False,
+) -> str:
+    index = _build_index()
+
+    response = None
+    effective_api_key = api_key or OPENROUTER_API_KEY
+    effective_model = model_name or OPENROUTER_MODEL
+
+    if not force_local and effective_api_key:
+        try:
+            from llama_index.llms.openrouter import OpenRouter
+
+            remote_llm = OpenRouter(
+                api_key=effective_api_key,
+                model=effective_model,
+                max_tokens=OPENROUTER_MAX_TOKENS,
+                temperature=0.1,
+                timeout=OPENROUTER_TIMEOUT,
+            )
+            query_engine = index.as_query_engine(
+                llm=remote_llm,
+                similarity_top_k=TOP_K,
+                text_qa_template=QA_PROMPT,
+            )
+            response = query_engine.query(query)
+        except Exception as e:
+            print(
+                f"\n⚠️ OpenRouter failed ({type(e).__name__}: {e}) — "
+                f"falling back to local...",
+                file=__import__("sys").stderr,
+            )
+
+    if response is None:
+        local_llm = _get_local_llm()
+        query_engine = index.as_query_engine(
+            llm=local_llm,
+            similarity_top_k=TOP_K,
+            text_qa_template=QA_PROMPT,
+        )
+        response = query_engine.query(query)
+
+    return str(response).strip()
+
+
+def ask_rag_stream(
+    query: str,
+    chat_context: str = "",
+    stop_event: threading.Event | None = None,
+    api_key: str = "",
+    model_name: str = "",
+    force_local: bool = False,
+) -> Generator[str, None, None]:
+    index = _build_index()
+    effective_api_key = api_key or OPENROUTER_API_KEY
+    effective_model = model_name or OPENROUTER_MODEL
+
+    if not force_local and effective_api_key:
+        try:
+            from llama_index.llms.openrouter import OpenRouter
+
+            remote_llm = OpenRouter(
+                api_key=effective_api_key,
+                model=effective_model,
+                max_tokens=OPENROUTER_MAX_TOKENS,
+                temperature=0.1,
+                timeout=OPENROUTER_TIMEOUT,
+            )
+            query_engine = index.as_query_engine(
+                llm=remote_llm,
+                similarity_top_k=TOP_K,
+                text_qa_template=QA_PROMPT,
+            )
+            response = query_engine.query(query)
+            yield str(response)
+            return
+        except Exception as e:
+            yield (
+                f"\n⚠️ OpenRouter failed ({type(e).__name__}: {e}) — "
+                f"falling back to local...\n"
+            )
 
     retriever = index.as_retriever(similarity_top_k=TOP_K)
     nodes = retriever.retrieve(query)
@@ -99,8 +164,6 @@ def ask_rag_stream(query: str, chat_context: str = "", stop_event: threading.Eve
 
     if stop_event and stop_event.is_set():
         return
-
-    import queue
 
     from llama_cpp import Llama
 
