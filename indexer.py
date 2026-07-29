@@ -9,39 +9,46 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.vector_stores.chroma import ChromaVectorStore
 
-from config import CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE
+from config import CHROMA_DIR, CHUNK_OVERLAP, CHUNK_SIZE, DEFAULT_WORLD_ID
 from embeddings import LlamaCPPEmbedding
 from storage import get_unprocessed, mark_processed, parse_docx, save_indexing_run
 
 
-def _load_known_hashes() -> set[str]:
-    path = f"{CHROMA_DIR}/known_hashes.json"
+def _world_chroma_dir(world_id: int) -> str:
+    return f"{CHROMA_DIR}/world_{world_id}"
+
+
+def _load_known_hashes(world_id: int) -> set[str]:
+    path = f"{_world_chroma_dir(world_id)}/known_hashes.json"
     if os.path.exists(path):
         with open(path) as f:
             return set(json.load(f))
     return set()
 
 
-def _save_known_hashes(hashes: set[str]):
-    os.makedirs(CHROMA_DIR, exist_ok=True)
-    path = f"{CHROMA_DIR}/known_hashes.json"
+def _save_known_hashes(hashes: set[str], world_id: int):
+    d = _world_chroma_dir(world_id)
+    os.makedirs(d, exist_ok=True)
+    path = f"{d}/known_hashes.json"
     with open(path, "w") as f:
         json.dump(list(hashes), f)
 
 
-def run_indexer():
-    records = get_unprocessed()
+def run_indexer(world_id: int = DEFAULT_WORLD_ID):
+    records = get_unprocessed(world_id=world_id)
     if not records:
         print("No new records to index.")
         return
 
-    chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
+    chroma_dir = _world_chroma_dir(world_id)
+    os.makedirs(chroma_dir, exist_ok=True)
+    chroma_client = chromadb.PersistentClient(path=chroma_dir)
     collection = chroma_client.get_or_create_collection("myrag")
     vector_store = ChromaVectorStore(chroma_collection=collection)
 
     embed_model = LlamaCPPEmbedding()
 
-    known_hashes = _load_known_hashes()
+    known_hashes = _load_known_hashes(world_id)
 
     new_docs = []
     skipped = 0
@@ -94,7 +101,7 @@ def run_indexer():
         f"({skipped} skipped by dedup)..."
     )
 
-    docstore_path = f"{CHROMA_DIR}/docstore.json"
+    docstore_path = f"{chroma_dir}/docstore.json"
     docstore = SimpleDocumentStore()
     try:
         docstore = SimpleDocumentStore.from_persist_path(docstore_path)
@@ -126,11 +133,11 @@ def run_indexer():
     t1 = time.time()
 
     known_hashes.update(d.metadata["content_hash"] for d in new_docs)
-    _save_known_hashes(known_hashes)
+    _save_known_hashes(known_hashes, world_id)
 
     mark_processed(processed_ids)
     print(f"Done. Indexed {len(new_docs)} documents.")
 
     duration = t1 - t0
-    save_indexing_run(len(new_docs), duration)
+    save_indexing_run(len(new_docs), duration, world_id=world_id)
     print(f"Indexing took {duration:.1f}s ({duration/60:.1f}min).")

@@ -1,6 +1,6 @@
 import sqlite3
 
-from config import DB_PATH
+from config import DB_PATH, DEFAULT_WORLD_ID
 
 
 _conn: sqlite3.Connection | None = None
@@ -37,6 +37,16 @@ def _get_conn() -> sqlite3.Connection:
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA synchronous=NORMAL")
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS worlds (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
         _conn.execute(
             """
             CREATE TABLE IF NOT EXISTS staging (
@@ -93,6 +103,22 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def _migrate():
+    _migrate_worlds_default()
+    _migrate_chat_id()
+    _migrate_staging_types()
+    _migrate_world_id_columns()
+
+
+def _migrate_worlds_default():
+    row = _conn.execute("SELECT COUNT(*) FROM worlds").fetchone()[0]
+    if row == 0:
+        _conn.execute(
+            "INSERT INTO worlds (name, description) VALUES (?, ?)",
+            ("Default", "Default world"),
+        )
+
+
+def _migrate_chat_id():
     try:
         _conn.execute(
             "ALTER TABLE chat_history ADD COLUMN chat_id INTEGER REFERENCES chats(id)"
@@ -108,8 +134,6 @@ def _migrate():
             "UPDATE chat_history SET chat_id = ? WHERE chat_id IS NULL",
             (default_id,),
         )
-
-    _migrate_staging_types()
 
 
 def _migrate_staging_types():
@@ -138,32 +162,127 @@ def _migrate_staging_types():
     _conn.execute("ALTER TABLE staging_new RENAME TO staging")
 
 
+def _migrate_world_id_columns():
+    for table, col_type in [
+        ("staging", "INTEGER"),
+        ("chat_history", "INTEGER"),
+        ("chats", "INTEGER"),
+        ("indexing_stats", "INTEGER"),
+    ]:
+        try:
+            _conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN world_id {col_type} "
+                f"REFERENCES worlds(id) DEFAULT {DEFAULT_WORLD_ID}"
+            )
+        except sqlite3.OperationalError:
+            pass
+
+    default_id = _conn.execute(
+        "SELECT id FROM worlds ORDER BY id LIMIT 1"
+    ).fetchone()[0]
+
+    for table in ["staging", "chat_history", "chats", "indexing_stats"]:
+        _conn.execute(
+            f"UPDATE {table} SET world_id = ? WHERE world_id IS NULL",
+            (default_id,),
+        )
+
+
 def init_db():
     _get_conn()
 
 
-def add_to_buffer(content: str, source: str, type_: str):
+# --- Worlds API ---
+
+
+def create_world(name: str, description: str = "") -> int:
     conn = _get_conn()
-    conn.execute(
-        "INSERT INTO staging (content, source, type) VALUES (?, ?, ?)",
-        (content, source, type_),
+    cur = conn.execute(
+        "INSERT INTO worlds (name, description) VALUES (?, ?)",
+        (name, description),
     )
     conn.commit()
+    return cur.lastrowid
 
 
-def bulk_add_to_buffer(records: list[tuple[str, str, str, str | None]]):
-    conn = _get_conn()
-    conn.executemany(
-        "INSERT INTO staging (content, source, type, created_at) VALUES (?, ?, ?, COALESCE(?, datetime('now')))",
-        records,
-    )
-    conn.commit()
-
-
-def get_unprocessed() -> list[dict]:
+def list_worlds() -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT * FROM staging WHERE is_processed = 0 ORDER BY id"
+        "SELECT id, name, description, created_at FROM worlds ORDER BY id"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_world(world_id: int) -> dict | None:
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT id, name, description, created_at FROM worlds WHERE id = ?",
+        (world_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def rename_world(world_id: int, name: str):
+    conn = _get_conn()
+    conn.execute("UPDATE worlds SET name = ? WHERE id = ?", (name, world_id))
+    conn.commit()
+
+
+def delete_world(world_id: int):
+    conn = _get_conn()
+    conn.execute("DELETE FROM staging WHERE world_id = ?", (world_id,))
+    conn.execute("DELETE FROM chat_history WHERE world_id = ?", (world_id,))
+    conn.execute("DELETE FROM chats WHERE world_id = ?", (world_id,))
+    conn.execute("DELETE FROM indexing_stats WHERE world_id = ?", (world_id,))
+    conn.execute("DELETE FROM worlds WHERE id = ?", (world_id,))
+    conn.commit()
+
+
+def get_world_stats(world_id: int) -> dict:
+    conn = _get_conn()
+    staging_total = conn.execute(
+        "SELECT COUNT(*) FROM staging WHERE world_id = ?", (world_id,)
+    ).fetchone()[0]
+    staging_pending = conn.execute(
+        "SELECT COUNT(*) FROM staging WHERE world_id = ? AND is_processed = 0",
+        (world_id,),
+    ).fetchone()[0]
+    chat_count = conn.execute(
+        "SELECT COUNT(*) FROM chats WHERE world_id = ?", (world_id,)
+    ).fetchone()[0]
+    return {
+        "staging_total": staging_total,
+        "staging_pending": staging_pending,
+        "chat_count": chat_count,
+    }
+
+
+# --- Staging API ---
+
+
+def add_to_buffer(content: str, source: str, type_: str, world_id: int = DEFAULT_WORLD_ID):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO staging (content, source, type, world_id) VALUES (?, ?, ?, ?)",
+        (content, source, type_, world_id),
+    )
+    conn.commit()
+
+
+def bulk_add_to_buffer(records: list[tuple[str, str, str, str | None]], world_id: int = DEFAULT_WORLD_ID):
+    conn = _get_conn()
+    conn.executemany(
+        "INSERT INTO staging (content, source, type, created_at, world_id) VALUES (?, ?, ?, COALESCE(?, datetime('now')), ?)",
+        [r + (world_id,) for r in records],
+    )
+    conn.commit()
+
+
+def get_unprocessed(world_id: int = DEFAULT_WORLD_ID) -> list[dict]:
+    conn = _get_conn()
+    rows = conn.execute(
+        "SELECT * FROM staging WHERE is_processed = 0 AND world_id = ? ORDER BY id",
+        (world_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -179,19 +298,25 @@ def mark_processed(ids: list[int]):
     conn.commit()
 
 
-def get_stats() -> dict:
+def get_stats(world_id: int = DEFAULT_WORLD_ID) -> dict:
     conn = _get_conn()
-    total = conn.execute("SELECT COUNT(*) FROM staging").fetchone()[0]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM staging WHERE world_id = ?", (world_id,)
+    ).fetchone()[0]
     pending = conn.execute(
-        "SELECT COUNT(*) FROM staging WHERE is_processed = 0"
+        "SELECT COUNT(*) FROM staging WHERE world_id = ? AND is_processed = 0",
+        (world_id,),
     ).fetchone()[0]
     return {"total": total, "pending": pending}
 
 
-def create_chat(title: str = "New Chat") -> int:
+# --- Chats API ---
+
+
+def create_chat(title: str = "New Chat", world_id: int = DEFAULT_WORLD_ID) -> int:
     conn = _get_conn()
     cur = conn.execute(
-        "INSERT INTO chats (title) VALUES (?)", (title,)
+        "INSERT INTO chats (title, world_id) VALUES (?, ?)", (title, world_id)
     )
     conn.commit()
     return cur.lastrowid
@@ -213,10 +338,11 @@ def delete_chat(chat_id: int):
     conn.commit()
 
 
-def list_chats() -> list[dict]:
+def list_chats(world_id: int = DEFAULT_WORLD_ID) -> list[dict]:
     conn = _get_conn()
     rows = conn.execute(
-        "SELECT id, title, created_at FROM chats ORDER BY updated_at DESC"
+        "SELECT id, title, created_at FROM chats WHERE world_id = ? ORDER BY updated_at DESC",
+        (world_id,),
     ).fetchall()
     return [dict(r) for r in rows]
 
@@ -229,11 +355,11 @@ def get_chat_title(chat_id: int) -> str | None:
     return row["title"] if row else None
 
 
-def save_chat(query: str, answer: str, chat_id: int | None = None):
+def save_chat(query: str, answer: str, chat_id: int | None = None, world_id: int = DEFAULT_WORLD_ID):
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO chat_history (query, answer, chat_id) VALUES (?, ?, ?)",
-        (query, answer, chat_id),
+        "INSERT INTO chat_history (query, answer, chat_id, world_id) VALUES (?, ?, ?, ?)",
+        (query, answer, chat_id, world_id),
     )
     conn.commit()
 
@@ -261,19 +387,23 @@ def load_recent_chat_context(chat_id: int, n: int = 5) -> str:
     return "\n".join(parts)
 
 
-def save_indexing_run(doc_count: int, duration: float):
+# --- Indexing stats ---
+
+
+def save_indexing_run(doc_count: int, duration: float, world_id: int = DEFAULT_WORLD_ID):
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO indexing_stats (doc_count, duration_seconds) VALUES (?, ?)",
-        (doc_count, duration),
+        "INSERT INTO indexing_stats (doc_count, duration_seconds, world_id) VALUES (?, ?, ?)",
+        (doc_count, duration, world_id),
     )
     conn.commit()
 
 
-def get_indexing_estimate(pending_count: int) -> str | None:
+def get_indexing_estimate(pending_count: int, world_id: int = DEFAULT_WORLD_ID) -> str | None:
     conn = _get_conn()
     row = conn.execute(
-        "SELECT SUM(doc_count), SUM(duration_seconds), COUNT(*) FROM indexing_stats"
+        "SELECT SUM(doc_count), SUM(duration_seconds), COUNT(*) FROM indexing_stats WHERE world_id = ?",
+        (world_id,),
     ).fetchone()
     if not row or row[2] == 0 or row[0] is None or row[0] == 0:
         return None

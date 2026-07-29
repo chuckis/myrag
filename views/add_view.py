@@ -4,7 +4,7 @@ import threading
 
 import flet as ft
 
-from storage import add_to_buffer, get_stats, get_indexing_estimate
+from storage import add_to_buffer, get_stats, get_indexing_estimate, get_world
 from indexer import run_indexer
 from logseq_importer import import_logseq
 from pdf_importer import import_pdf
@@ -44,6 +44,9 @@ class AddView:
             on_click=self.on_index,
         )
         self.index_progress = ft.ProgressRing(width=16, height=16, visible=False)
+
+    def _world_id(self) -> int:
+        return self.page.session.store.get("world_id") or 1
 
     def build(self) -> ft.Control:
         return ft.Column(
@@ -136,7 +139,7 @@ class AddView:
         content = self.content_field.value
         if not content:
             return
-        add_to_buffer(content, self.source_field.value, self.type_dropdown.value)
+        add_to_buffer(content, self.source_field.value, self.type_dropdown.value, world_id=self._world_id())
         self.content_field.value = ""
         self.page.update()
         self.refresh_status()
@@ -150,7 +153,7 @@ class AddView:
         if ext == ".json":
             self._import_json(path)
         elif ext == ".docx":
-            add_to_buffer(path, self.source_field.value, "docx")
+            add_to_buffer(path, self.source_field.value, "docx", world_id=self._world_id())
             self.file_path_field.value = ""
             self.page.update()
             self.refresh_status()
@@ -164,6 +167,7 @@ class AddView:
             self.page.update()
 
     def _import_json(self, path: str):
+        wid = self._world_id()
         self.file_path_field.disabled = True
         self.log_text.value = f"Importing {path}..."
         self.page.update()
@@ -174,10 +178,10 @@ class AddView:
                     data = json.load(f)
 
                 if "blocks" in data:
-                    stats = import_logseq(path)
+                    stats = import_logseq(path, world_id=wid)
                     label = "Logseq"
                 elif "messages" in data:
-                    stats = import_telegram(path)
+                    stats = import_telegram(path, world_id=wid)
                     label = "Telegram"
                 else:
                     self.log_text.value = (
@@ -202,13 +206,14 @@ class AddView:
         threading.Thread(target=task, daemon=True).start()
 
     def _import_pdf(self, path: str):
+        wid = self._world_id()
         self.file_path_field.disabled = True
         self.log_text.value = f"Importing {path}..."
         self.page.update()
 
         def task():
             try:
-                stats = import_pdf(path)
+                stats = import_pdf(path, world_id=wid)
                 self.log_text.value = (
                     f"PDF import complete:\n"
                     f"  Total:      {stats['total']}\n"
@@ -225,14 +230,15 @@ class AddView:
         threading.Thread(target=task, daemon=True).start()
 
     def on_index(self, _):
-        stats = get_stats()
+        wid = self._world_id()
+        stats = get_stats(world_id=wid)
         pending = stats["pending"]
         if pending == 0:
             self.log_text.value = "Nothing to index."
             self.page.update()
             return
 
-        estimate = get_indexing_estimate(pending)
+        estimate = get_indexing_estimate(pending, world_id=wid)
         msg = f"Indexing {pending} pending record{'s' if pending != 1 else ''}..."
         if estimate:
             msg += f"\nEstimated time: {estimate}"
@@ -252,7 +258,7 @@ class AddView:
             try:
                 from storage import init_db as s_init
                 s_init()
-                run_indexer()
+                run_indexer(world_id=wid)
             except Exception as e:
                 print(f"Indexer failed: {e}")
             finally:
@@ -270,10 +276,14 @@ class AddView:
         threading.Thread(target=task, daemon=True).start()
 
     def refresh_status(self):
-        stats = get_stats()
+        wid = self._world_id()
+        world = get_world(wid)
+        world_name = world["name"] if world else "?"
+        stats = get_stats(world_id=wid)
         indexed = stats["total"] - stats["pending"]
         self.status_text.value = (
-            f"Status: Total: {stats['total']}  "
+            f"🌍 {world_name}  |  "
+            f"Total: {stats['total']}  "
             f"| Pending: {stats['pending']}  "
             f"| Indexed: {indexed}"
         )

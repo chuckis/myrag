@@ -5,7 +5,7 @@ import flet as ft
 from storage import (
     save_chat, load_chat_history, get_chat_title,
     create_chat, rename_chat, delete_chat, list_chats,
-    get_all_settings,
+    get_all_settings, get_world,
 )
 from query import ask_rag_stream
 
@@ -105,6 +105,9 @@ class ChatView:
             spacing=5,
         )
 
+    def _world_id(self) -> int:
+        return self.page.session.store.get("world_id") or 1
+
     def _is_mobile(self) -> bool:
         w = self.page.width
         return w is not None and w < 768
@@ -136,13 +139,19 @@ class ChatView:
         self.page.update()
 
     def build(self) -> ft.Control:
-        chats = list_chats()
+        wid = self._world_id()
+        chats = list_chats(world_id=wid)
         if not chats:
-            chat_id = create_chat("General")
+            chat_id = create_chat("General", world_id=wid)
         else:
             chat_id = chats[0]["id"]
 
         self.current_chat_id = chat_id
+
+        world = get_world(wid)
+        self.status_bar.value = (
+            f"🌍 {world['name'] if world else '?'}  |  🏠 Local: Qwen 1.5B"
+        )
 
         for chat in chats:
             self.sidebar_list.controls.append(self._build_chat_row(chat))
@@ -223,7 +232,8 @@ class ChatView:
         )
 
     def load_chat_list(self):
-        chats = list_chats()
+        wid = self._world_id()
+        chats = list_chats(world_id=wid)
 
         if self.current_chat_id is not None:
             exists = any(c["id"] == self.current_chat_id for c in chats)
@@ -231,7 +241,7 @@ class ChatView:
                 if chats:
                     self.switch_chat(chats[0]["id"])
                 else:
-                    self.switch_chat(create_chat("General"))
+                    self.switch_chat(create_chat("General", world_id=wid))
                 return
 
         self.sidebar_list.controls.clear()
@@ -261,7 +271,8 @@ class ChatView:
         self.load_chat_list()
 
     def on_new_chat(self, _):
-        chat_id = create_chat("New Chat")
+        wid = self._world_id()
+        chat_id = create_chat("New Chat", world_id=wid)
         self.switch_chat(chat_id)
 
     def on_rename_chat(self, chat_id: int):
@@ -299,11 +310,12 @@ class ChatView:
         def confirm(e):
             delete_chat(chat_id)
             self.page.pop_dialog()
-            chats = list_chats()
+            wid = self._world_id()
+            chats = list_chats(world_id=wid)
             if chats:
                 self.switch_chat(chats[0]["id"])
             else:
-                self.switch_chat(create_chat("General"))
+                self.switch_chat(create_chat("General", world_id=wid))
 
         dlg = ft.AlertDialog(
             title=ft.Text("Delete chat"),
@@ -367,6 +379,8 @@ class ChatView:
             f"User: {q}\nAssistant: {a}" for q, a in recent
         )
 
+        wid = self._world_id()
+
         def stream_task():
             nonlocal full_answer, had_fallback
             try:
@@ -377,6 +391,7 @@ class ChatView:
                     api_key=api_key,
                     model_name=model_name,
                     force_local=force_local,
+                    world_id=wid,
                 ):
                     if not had_fallback and token.startswith("⚠️ OpenRouter failed"):
                         had_fallback = True
@@ -389,13 +404,15 @@ class ChatView:
 
             cancelled = self._stop_event and self._stop_event.is_set()
             if full_answer and not cancelled:
-                save_chat(query, full_answer, self.current_chat_id)
+                save_chat(query, full_answer, self.current_chat_id, world_id=wid)
                 self.current_messages.append((query, full_answer))
 
+                world = get_world(wid)
+                world_tag = f"🌍 {world['name']}" if world else "🌍 ?"
                 if force_local or not api_key or had_fallback:
-                    self.status_bar.value = "🏠 Local: Qwen 1.5B"
+                    self.status_bar.value = f"{world_tag}  |  🏠 Local: Qwen 1.5B"
                 else:
-                    self.status_bar.value = f"🌐 OpenRouter: {model_name or 'default'}"
+                    self.status_bar.value = f"{world_tag}  |  🌐 OpenRouter: {model_name or 'default'}"
                 self.page.update()
 
             self.streaming = False

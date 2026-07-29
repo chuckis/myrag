@@ -13,7 +13,7 @@ def parse_pdf(filepath: str) -> str:
     return "\n\n".join(pages)
 
 
-def import_pdf(filepath: str) -> dict[str, int]:
+def import_pdf(filepath: str, world_id: int = 1) -> dict[str, int]:
     init_db()
     content = parse_pdf(filepath)
     if not content:
@@ -21,7 +21,7 @@ def import_pdf(filepath: str) -> dict[str, int]:
 
     import os
     source = os.path.splitext(os.path.basename(filepath))[0]
-    add_to_buffer(content, source, "text")
+    add_to_buffer(content, source, "text", world_id=world_id)
 
     return {"total": 1, "imported": 1}
 

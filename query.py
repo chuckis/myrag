@@ -11,6 +11,7 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 from config import (
     CHROMA_DIR, LLM_MODEL_PATH, N_THREADS, N_CTX, TOP_K,
     OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_TIMEOUT, OPENROUTER_MAX_TOKENS,
+    DEFAULT_WORLD_ID,
 )
 from embeddings import LlamaCPPEmbedding
 
@@ -57,8 +58,9 @@ def _get_local_llm() -> LlamaCPP:
     )
 
 
-def _build_index():
-    chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
+def _build_index(world_id: int = DEFAULT_WORLD_ID):
+    chroma_dir = f"{CHROMA_DIR}/world_{world_id}"
+    chroma_client = chromadb.PersistentClient(path=chroma_dir)
     collection = chroma_client.get_or_create_collection("myrag")
     vector_store = ChromaVectorStore(chroma_collection=collection)
     embed_model = LlamaCPPEmbedding()
@@ -70,8 +72,9 @@ def ask_rag(
     api_key: str = "",
     model_name: str = "",
     force_local: bool = False,
+    world_id: int = DEFAULT_WORLD_ID,
 ) -> str:
-    index = _build_index()
+    index = _build_index(world_id=world_id)
 
     response = None
     effective_api_key = api_key or OPENROUTER_API_KEY
@@ -96,7 +99,7 @@ def ask_rag(
             response = query_engine.query(query)
         except Exception as e:
             print(
-                f"\n⚠️ OpenRouter failed ({type(e).__name__}: {e}) — "
+                f"\n\u26a0\ufe0f OpenRouter failed ({type(e).__name__}: {e}) \u2014 "
                 f"falling back to local...",
                 file=__import__("sys").stderr,
             )
@@ -120,8 +123,9 @@ def ask_rag_stream(
     api_key: str = "",
     model_name: str = "",
     force_local: bool = False,
+    world_id: int = DEFAULT_WORLD_ID,
 ) -> Generator[str, None, None]:
-    index = _build_index()
+    index = _build_index(world_id=world_id)
     effective_api_key = api_key or OPENROUTER_API_KEY
     effective_model = model_name or OPENROUTER_MODEL
 
@@ -146,7 +150,7 @@ def ask_rag_stream(
             return
         except Exception as e:
             yield (
-                f"\n⚠️ OpenRouter failed ({type(e).__name__}: {e}) — "
+                f"\n\u26a0\ufe0f OpenRouter failed ({type(e).__name__}: {e}) \u2014 "
                 f"falling back to local...\n"
             )
 

@@ -40,7 +40,7 @@ def parse_logseq_export(filepath: str) -> list[dict[str, Any]]:
     return records
 
 
-def import_logseq(filepath: str) -> dict[str, int]:
+def import_logseq(filepath: str, world_id: int = 1) -> dict[str, int]:
     init_db()
 
     t0 = time.perf_counter()
@@ -56,7 +56,7 @@ def import_logseq(filepath: str) -> dict[str, int]:
     ]
 
     t2 = time.perf_counter()
-    bulk_add_to_buffer(tuples)
+    bulk_add_to_buffer(tuples, world_id=world_id)
     t3 = time.perf_counter()
 
     print(f"[logseq] Parse: {t1-t0:.3f}s | SQLite: {t3-t2:.3f}s | Records: {len(records)}", file=sys.stderr)
